@@ -31,19 +31,18 @@ namespace UninstallTools.Dialogs
             InitializeComponent();
 
             comboBoxFilter.SelectedIndex = 0;
+
+            columnHeader5.AspectToStringConverter = x => (!(bool)x).ToYesNo();
+            listView1.FormatRow += (sender, args) =>
+            {
+                if (args.Model is StartupEntryBase seb)
+                    args.Item.ForeColor = seb.Disabled ? SystemColors.GrayText : SystemColors.ControlText;
+            };
         }
 
         private List<StartupEntryBase> AllItems { get; set; }
 
-        private IEnumerable<StartupEntryBase> Selection
-        {
-            get { return listView1.SelectedItems.Cast<ListViewItem>().Select(x => x.Tag as StartupEntryBase); }
-        }
-
-        /*private IEnumerable<StartupEntryBase> VisibleItems
-        {
-            get { return listView1.Items.Cast<ListViewItem>().Select(x => x.Tag as StartupEntryBase); }
-        }*/
+        private IEnumerable<StartupEntryBase> Selection => listView1.SelectedObjects.Cast<StartupEntryBase>();
 
         /// <summary>
         ///     Show startup manager dialog. Returns latest startup entry list.
@@ -134,8 +133,27 @@ namespace UninstallTools.Dialogs
                 }
                 catch (Exception ex)
                 {
-                    PremadeDialogs.GenericError(ex);
+                    ShowSecurityOrGenericError(ex, "copying to clipboard");
                 }
+            }
+        }
+
+        private void ShowSecurityOrGenericError(Exception ex, string context, string extraInfo = null)
+        {
+            if (ex is System.Security.SecurityException || ex is UnauthorizedAccessException)
+            {
+                PremadeDialogs.GenericError(
+                    $"Access denied while {context}." + (string.IsNullOrWhiteSpace(extraInfo) ? "" : $" {extraInfo}") +
+                    $"\nError: {ex.Message}\n\n" +
+                    "You may not have sufficient permissions to perform this operation. Here are some possible causes:\n" +
+                    "1.\tService/File Permissions: The user (even admin) may lack permissions on the specific item. Security descriptors can restrict who can modify or delete a service/file.\n" +
+                    "2.\tWMI Namespace Permissions: The user may lack permissions on the root\\CIMV2 namespace.\n" +
+                    "3.\tService/File in Use: Some system services cannot be deleted or modified, even by administrators.\n" +
+                    "4.\tAnti-malware/AV: Security software may block service modifications.");
+            }
+            else
+            {
+                PremadeDialogs.GenericError(ex);
             }
         }
 
@@ -151,12 +169,19 @@ namespace UninstallTools.Dialogs
                 {
                     foreach (var item in Selection)
                     {
-                        item.Delete();
+                        try
+                        {
+                            item.Delete();
+                        }
+                        catch (Exception ex)
+                        {
+                            ShowSecurityOrGenericError(ex, "deleting service", $"Service name: {item.ProgramName}");
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
-                    PremadeDialogs.GenericError(ex);
+                    ShowSecurityOrGenericError(ex, "deleting service");
                 }
             }
         }
@@ -199,7 +224,7 @@ namespace UninstallTools.Dialogs
                 }
                 catch (Exception ex)
                 {
-                    PremadeDialogs.GenericError(ex);
+                    ShowSecurityOrGenericError(ex, "opening file location", $"Path: {item.CommandFilePath}");
                 }
             }
         }
@@ -212,7 +237,7 @@ namespace UninstallTools.Dialogs
             }
             catch (Exception ex)
             {
-                PremadeDialogs.GenericError(ex);
+                ShowSecurityOrGenericError(ex, "opening link location");
             }
         }
 
@@ -221,7 +246,7 @@ namespace UninstallTools.Dialogs
             Cursor = Cursors.WaitCursor;
             if (listView1.Items.Count < 1)
             {
-                listView1.Items.Add(Localisation.StartupManager_Loading);
+                listView1.EmptyListMsg = Localisation.StartupManager_Loading;
                 listView1.Update();
             }
 
@@ -250,6 +275,7 @@ namespace UninstallTools.Dialogs
 
             listView1.EndUpdate();
             Cursor = Cursors.Default;
+            listView1.EmptyListMsg = null;
         }
 
         private void UpdateList(bool pauseLvUpdates = true)
@@ -260,6 +286,10 @@ namespace UninstallTools.Dialogs
                 listView1.BeginUpdate();
             }
 
+            listView1.ClearObjects();
+
+            listView1.Sort(columnHeader1, SortOrder.Ascending);
+
             var query = from item in AllItems
                         where comboBoxFilter.SelectedIndex == 0 ||
                               comboBoxFilter.SelectedIndex == 1 && item is StartupEntry ||
@@ -267,23 +297,10 @@ namespace UninstallTools.Dialogs
                               comboBoxFilter.SelectedIndex == 3 && item is BrowserHelperEntry ||
                               comboBoxFilter.SelectedIndex == 4 && item is ServiceEntry
                         orderby item.ProgramName ascending
-                        select new ListViewItem(new[]
-                        {
-                    item.ProgramName,
-                    (!item.Disabled).ToYesNo(),
-                    item.Company,
-                    item.ParentShortName,
-                    item.Command
-                })
-                        {
-                            Tag = item,
-                            ForeColor = item.Disabled ? SystemColors.GrayText : SystemColors.ControlText,
-                            ImageIndex = Math.Max(listView1.SmallImageList.Images.IndexOfKey(item.ProgramName), 0)
-                        };
+                        select item;
 
             // Populate list items
-            listView1.Items.Clear();
-            listView1.Items.AddRange(query.ToArray());
+            listView1.SetObjects(query);
 
             if (pauseLvUpdates)
             {
@@ -312,7 +329,7 @@ namespace UninstallTools.Dialogs
                 }
                 catch (Exception ex)
                 {
-                    PremadeDialogs.GenericError(ex);
+                    ShowSecurityOrGenericError(ex, "saving file", $"File: {exportDialog.FileName}");
                     e.Cancel = true;
                 }
             }
@@ -344,7 +361,7 @@ namespace UninstallTools.Dialogs
                 }
                 catch (Exception ex)
                 {
-                    PremadeDialogs.GenericError(ex);
+                    ShowSecurityOrGenericError(ex, "enabling/disabling entry", $"Entry: {item.ProgramName}");
                 }
             }
 
@@ -366,7 +383,7 @@ namespace UninstallTools.Dialogs
                 }
                 catch (Exception ex)
                 {
-                    PremadeDialogs.GenericError(ex);
+                    ShowSecurityOrGenericError(ex, "setting run for all users", $"Entry: {item.ProgramName}");
                 }
             }
 
@@ -383,7 +400,7 @@ namespace UninstallTools.Dialogs
                 }
                 catch (Exception ex)
                 {
-                    PremadeDialogs.GenericError(ex);
+                    ShowSecurityOrGenericError(ex, "moving to registry", $"Entry: {item.ProgramName}");
                 }
             }
 
@@ -403,11 +420,18 @@ namespace UninstallTools.Dialogs
                 }
                 catch (Exception ex)
                 {
-                    PremadeDialogs.GenericError(ex);
+                    ShowSecurityOrGenericError(ex, "creating backup", $"Entry: {item.ProgramName}");
                 }
             }
 
-            Process.Start(new ProcessStartInfo(folderBrowserDialog.SelectedPath) { UseShellExecute = true });
+            try
+            {
+                Process.Start(new ProcessStartInfo(folderBrowserDialog.SelectedPath) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                ShowSecurityOrGenericError(ex, "opening backup folder", $"Path: {folderBrowserDialog.SelectedPath}");
+            }
 
             UpdateList();
         }

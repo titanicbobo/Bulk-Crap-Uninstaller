@@ -13,6 +13,7 @@ using System.Windows.Forms;
 using BulkCrapUninstaller.Forms;
 using BulkCrapUninstaller.Functions.Tools;
 using BulkCrapUninstaller.Properties;
+using Klocman;
 using Klocman.Extensions;
 using Klocman.Forms;
 using Klocman.Forms.Tools;
@@ -201,14 +202,14 @@ namespace BulkCrapUninstaller.Functions
                 {
                     _lockApplication(true);
 
-                    BulkUninstallEntry[] taskEntries;
+                    IReadOnlyList<BulkUninstallEntry> taskEntries;
 
                     using (var wizard = new BeginUninstallTaskWizard())
                     {
                         wizard.Initialize(targetList, allUninstallerList.ToList(), quiet);
 
                         wizard.StartPosition = FormStartPosition.CenterParent;
-                        if (wizard.ShowDialog(MessageBoxes.DefaultOwner) != DialogResult.OK || wizard.Results.Length == 0)
+                        if (wizard.ShowDialog(MessageBoxes.DefaultOwner) != DialogResult.OK || wizard.Results.Count == 0)
                             return;
 
                         taskEntries = wizard.Results;
@@ -219,11 +220,11 @@ namespace BulkCrapUninstaller.Functions
                     // No turning back at this point (kind of)
                     listRefreshNeeded = true;
 
-                    if (_settings.CreateRestorePoint)
+                    if (_settings.MessagesRestorePoints != YesNoAsk.No)
                     {
                         try
                         {
-                            SystemRestore.BeginSysRestore(taskEntries.Length, false);
+                            SystemRestore.BeginSysRestore(taskEntries.Count, true);
                         }
                         catch (Exception exception)
                         {
